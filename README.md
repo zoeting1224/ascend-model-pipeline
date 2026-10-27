@@ -3,7 +3,7 @@
 面向昇腾 NPU 的模型转换与 ACL Runtime 推理代码。仓库将模型无关的公共工具与模型专用的导出、预处理和后处理分开，当前已完成 PointPillars KITTI 三分类模型的完整链路：
 
 ```text
-PTH → ONNX → OM → ACL Runtime → KITTI 点云 3D 检测结果
+PTH → ONNX → OM → AISBench 性能测试 / ACL Runtime 真实点云推理
 ```
 
 当前实现采用 CPU 完成 PointPillars 的 voxelization、Scatter 和后处理，在 Ascend 310P1 上执行两个 OM：
@@ -18,9 +18,7 @@ PTH → ONNX → OM → ACL Runtime → KITTI 点云 3D 检测结果
 ├── common/
 │   ├── acl_runner.py
 │   ├── check_acl.py
-│   ├── convert_onnx_to_om.py
-│   ├── inspect_om.py
-│   └── smoke_test_om.py
+│   └── convert_onnx_to_om.py
 ├── pointpillars/
 │   ├── export_onnx.py
 │   ├── preprocess.py
@@ -80,6 +78,22 @@ python3 -m pip install -r requirements-export.txt
 
 实际版本应与当前 CANN 容器和 PyTorch 环境兼容。不要让 pip 自动替换 CANN 镜像中已经适配的核心依赖。
 
+## 安装 AISBench
+
+OM 生成后统一使用华为官方 AISBench 测试加载和 NPU 执行性能。在 CANN 容器中执行：
+
+```bash
+git clone --depth 1 https://gitee.com/ascend/tools.git /tmp/ascend-tools
+
+python3 -m pip install --no-build-isolation \
+  /tmp/ascend-tools/ais-bench_workload/tool/ais_bench/backend
+
+python3 -m pip install --no-build-isolation \
+  /tmp/ascend-tools/ais-bench_workload/tool/ais_bench
+```
+
+`aclruntime` 需要针对当前 aarch64/CANN 环境编译，安装可能需要几分钟。
+
 ## 1. 导出 PointPillars ONNX
 
 准备权重：
@@ -134,40 +148,45 @@ python3 common/convert_onnx_to_om.py \
   --log-file pointpillars/logs/atc_backbone_head.log
 ```
 
-## 3. 检查 OM 接口
+## 3. 使用 AISBench 测试 OM
 
 ```bash
-python3 common/inspect_om.py \
-  pointpillars/om/pillar_encoder.om \
-  pointpillars/om/backbone_head.om
-```
-
-预期接口：
-
-```text
-pillar_encoder.om
-输入  decorated_features [40000,32,10] float32
-输出  pillar_features    [40000,64]    float32
-
-backbone_head.om
-输入  spatial_features [1,64,496,432] float32
-输出  cls_scores       [1,18,248,216] float32
-输出  bbox_preds       [1,42,248,216] float32
-输出  dir_cls_preds    [1,12,248,216] float32
-```
-
-## 4. OM 冒烟测试
-
-```bash
-python3 common/smoke_test_om.py \
+python3 -m ais_bench \
+  --model pointpillars/om/pillar_encoder.om \
   --device 0 \
-  pointpillars/om/pillar_encoder.om \
-  pointpillars/om/backbone_head.om
+  --batchsize 1 \
+  --warmup_count 10 \
+  --loop 100 \
+  --display_all_summary true
+
+python3 -m ais_bench \
+  --model pointpillars/om/backbone_head.om \
+  --device 0 \
+  --batchsize 1 \
+  --warmup_count 10 \
+  --loop 100 \
+  --display_all_summary true
 ```
 
-该步骤使用零输入检查模型加载、显存申请、H2D、模型执行、D2H 和输出有限值，不代表真实检测精度。
+不传 `--input` 时，AISBench 会按 OM 的输入形状自动生成零值数据，因此测时不需要 KITTI 数据集。重点关注：
 
-## 5. 真实 KITTI 点云推理
+- `NPU_compute_time`：NPU 模型执行耗时。
+- `H2D_latency` / `D2H_latency`：主机与设备间的传输耗时。
+- `mean`、`min`、`max`、`median`、`P99`：多次执行的耗时分布。
+- `throughput`：单位时间的推理量。
+
+AISBench 在这里分别测试两个 OM，不统计 CPU voxelization、Scatter、后处理以及两个 OM 之间的整体链路耗时。
+
+在 Ascend 310P1 上使用 10 次预热、100 次正式循环的一次实测结果：
+
+| OM | NPU 平均耗时 | P99 | Throughput |
+| --- | ---: | ---: | ---: |
+| `pillar_encoder.om` | 46.934 ms | 47.571 ms | 21.307 infer/s |
+| `backbone_head.om` | 7.859 ms | 7.979 ms | 127.243 infer/s |
+
+测试值会受 NPU 负载、温度和容器环境影响，应以当次 AISBench 输出为准。
+
+## 4. 真实 KITTI 点云推理
 
 KITTI Velodyne `.bin` 文件中的每个点应包含四个连续的 `float32`：`x、y、z、反射强度`。
 
@@ -199,9 +218,9 @@ python3 pointpillars/run.py \
 ## 公共工具适用范围
 
 - `convert_onnx_to_om.py`：通过命令行参数转换其他 ONNX。
-- `inspect_om.py`：检查任意数量的 OM 输入输出接口。
-- `smoke_test_om.py`：测试静态形状 OM 的基础执行链路。
 - `acl_runner.py`：提供静态形状 OM 的加载、内存复制、执行和资源释放。
+
+OM 生成后的通用性能测试直接使用 AISBench，不再维护自定义检查和冒烟测试脚本。
 
 增加其他模型时，新建一个模型目录并实现该模型的 `export_onnx.py`、`preprocess.py`、`postprocess.py` 和 `run.py`，继续复用 `common/` 中的工具。
 
