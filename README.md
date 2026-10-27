@@ -17,6 +17,7 @@ PTH → ONNX → OM → AISBench 性能测试
 .
 ├── common/
 │   ├── acl_runner.py
+│   ├── benchmark_om.py
 │   ├── check_acl.py
 │   └── convert_onnx_to_om.py
 ├── pointpillars/
@@ -152,24 +153,16 @@ python3 common/convert_onnx_to_om.py \
 ## 3. 使用 AISBench 测试 OM
 
 ```bash
-python3 -m ais_bench \
-  --model pointpillars/om/pillar_encoder.om \
+python3 common/benchmark_om.py \
   --device 0 \
-  --batchsize 1 \
-  --warmup_count 10 \
+  --batch-size 1 \
+  --warmup-count 10 \
   --loop 100 \
-  --display_all_summary true
-
-python3 -m ais_bench \
-  --model pointpillars/om/backbone_head.om \
-  --device 0 \
-  --batchsize 1 \
-  --warmup_count 10 \
-  --loop 100 \
-  --display_all_summary true
+  pointpillars/om/pillar_encoder.om \
+  pointpillars/om/backbone_head.om
 ```
 
-不传 `--input` 时，AISBench 会按 OM 的输入形状自动生成零值数据，因此测时不需要 KITTI 数据集。重点关注：
+脚本会依次调用 AISBench 测试所有传入的 OM。默认按模型输入形状生成零值数据，因此测时不需要 KITTI 数据集。重点关注：
 
 - `NPU_compute_time`：NPU 模型执行耗时。
 - `H2D_latency` / `D2H_latency`：主机与设备间的传输耗时。
@@ -190,6 +183,7 @@ AISBench 在这里分别测试两个 OM，不统计 CPU voxelization、Scatter�
 ## 公共工具适用范围
 
 - `convert_onnx_to_om.py`：通过命令行参数转换其他 ONNX。
+- `benchmark_om.py`：通过 AISBench 依次测试一个或多个 OM。
 - `acl_runner.py`：提供静态形状 OM 的加载、内存复制、执行和资源释放。
 
 OM 生成后的通用性能测试直接使用 AISBench，不再维护自定义检查和冒烟测试脚本。
