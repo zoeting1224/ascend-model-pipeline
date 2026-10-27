@@ -1,9 +1,9 @@
 # Ascend Model Pipeline
 
-面向昇腾 NPU 的模型转换与 ACL Runtime 推理代码。仓库将模型无关的公共工具与模型专用的导出、预处理和后处理分开，当前已完成 PointPillars KITTI 三分类模型的完整链路：
+面向昇腾 NPU 的模型转换与测试代码。仓库将模型无关的公共工具与模型专用的导出代码分开，当前已完成 PointPillars KITTI 三分类模型的转换和性能测试链路：
 
 ```text
-PTH → ONNX → OM → AISBench 性能测试 / ACL Runtime 真实点云推理
+PTH → ONNX → OM → AISBench 性能测试
 ```
 
 当前实现采用 CPU 完成 PointPillars 的 voxelization、Scatter 和后处理，在 Ascend 310P1 上执行两个 OM：
@@ -186,35 +186,6 @@ AISBench 在这里分别测试两个 OM，不统计 CPU voxelization、Scatter�
 | `backbone_head.om` | 7.859 ms | 7.979 ms | 127.243 infer/s |
 
 测试值会受 NPU 负载、温度和容器环境影响，应以当次 AISBench 输出为准。
-
-## 4. 真实 KITTI 点云推理
-
-KITTI Velodyne `.bin` 文件中的每个点应包含四个连续的 `float32`：`x、y、z、反射强度`。
-
-```bash
-python3 pointpillars/run.py \
-  --points pointpillars/data/000008.bin \
-  --model-dir pointpillars/om \
-  --output pointpillars/results/000008_detections.json
-```
-
-输出 JSON 包含类别、置信度和 LiDAR 坐标系中的 3D 框：
-
-```json
-{
-  "class_name": "Car",
-  "score": 0.952,
-  "box_lidar_bottom_center": {
-    "x": 14.76,
-    "y": -1.10,
-    "z": -1.54,
-    "width_x": 3.74,
-    "length_y": 1.54,
-    "height_z": 1.49,
-    "yaw": -0.312
-  }
-}
-```
 
 ## 公共工具适用范围
 
