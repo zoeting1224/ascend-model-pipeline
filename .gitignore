@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store
+
+# Model weights and generated artifacts
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.om
+*.bin
+*.log
+
+**/weights/
+**/onnx/
+**/om/
+**/data/
+**/results/
+**/logs/
+
