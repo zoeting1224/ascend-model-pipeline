@@ -83,6 +83,7 @@ python3 -m pip install -r requirements-export.txt
 OM 生成后统一使用华为官方 AISBench 测试加载和 NPU 执行性能。在 CANN 容器中执行：
 
 ```bash
+rm -rf /tmp/ascend-tools
 git clone --depth 1 https://gitee.com/ascend/tools.git /tmp/ascend-tools
 
 python3 -m pip install --no-build-isolation \
